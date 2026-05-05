@@ -1,0 +1,524 @@
+# Etsy Clone — Implementation Plan & Tasks
+> Last revised: 2026-05-05
+
+---
+
+## 1. Project Overview
+
+A multi-vendor handmade/vintage marketplace (Etsy-style) where **sellers** create shops, list products, and manage orders, while **buyers** discover, purchase, and review items. The platform earns revenue through a commission on each sale.
+
+### 1.1 Core Value Proposition
+- Algerian-focused marketplace with **Chargily** as the local payment gateway.
+- Seller storefronts with branding and product catalogs.
+- Buyer discovery via search, categories, and curated collections.
+- Review & rating system for trust and social proof.
+
+---
+
+## 2. Resolved Decisions
+
+| Decision | Resolution | Rationale |
+|---|---|---|
+| **Framework** | Next.js 14+ (App Router) | Server Components, Server Actions, streaming, SEO-friendly SSR |
+| **Styling** | Tailwind CSS **v3** | Max compatibility with Shadcn UI and BetterAuth UI components |
+| **Auth** | BetterAuth | Open-source, DB-agnostic, built-in UI, no vendor lock-in |
+| **ORM** | Prisma | Beginner-friendly, readable schema, first-class BetterAuth adapter |
+| **Database** | Supabase PostgreSQL (as hosted DB only) | Free tier to start; ORM abstraction enables future migration |
+| **Storage** | Supabase Storage (initial) | Simple bucket API; wrapped behind a generic interface for portability |
+| **Payments** | Chargily Pay V2 | Algerian market support; REST API + webhook-based confirmation |
+
+> [!IMPORTANT]
+> We bypass Supabase Auth and RLS entirely. All access control lives in the Next.js application layer (Server Actions, API Routes, middleware). Supabase is used **only** as a hosted PostgreSQL database and file storage bucket.
+
+---
+
+## 3. Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                    Client (Browser)               │
+│  Next.js App Router — React Server Components     │
+│  Tailwind CSS v3 + Shadcn UI                      │
+└──────────────┬───────────────────┬────────────────┘
+               │                   │
+     Server Actions          API Routes
+     (mutations)          (/api/auth, /api/webhooks)
+               │                   │
+       ┌───────┴───────────────────┴───────┐
+       │       Next.js Server Layer         │
+       │  • BetterAuth (session, RBAC)      │
+       │  • Prisma ORM (data access)        │
+       │  • Storage wrapper (file uploads)  │
+       │  • Chargily SDK (payment init)     │
+       └───┬──────────┬──────────┬──────────┘
+           │          │          │
+   Supabase DB   Supabase    Chargily
+   (PostgreSQL)  Storage     Pay API
+```
+
+### 3.1 Key Architectural Principles
+1. **Server-first**: Mutations via Server Actions; sensitive logic never reaches the client.
+2. **ORM abstraction**: Prisma decouples us from Supabase — migration = change one env var.
+3. **Generic storage interface**: A `StorageService` wrapper so we can swap Supabase Storage → S3/R2 later.
+4. **Webhook-verified payments**: Never trust client-side redirects; confirm via Chargily webhooks.
+
+---
+
+## 4. Project File Structure
+
+```
+EtsyClone/
+├── prisma/
+│   └── schema.prisma              # Full DB schema (auth + marketplace models)
+├── public/                        # Static assets (logo, favicons, OG images)
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx             # Root layout (fonts, providers, navbar, footer)
+│   │   ├── page.tsx               # Home / landing page
+│   │   ├── (auth)/
+│   │   │   ├── sign-in/page.tsx
+│   │   │   └── sign-up/page.tsx
+│   │   ├── (buyer)/
+│   │   │   ├── products/          # Browse & search
+│   │   │   ├── product/[id]/      # Product detail
+│   │   │   ├── shop/[slug]/       # Seller storefront (public)
+│   │   │   ├── cart/              # Shopping cart
+│   │   │   ├── checkout/          # Checkout flow
+│   │   │   └── orders/            # Buyer order history
+│   │   ├── (seller)/
+│   │   │   └── dashboard/
+│   │   │       ├── page.tsx       # Seller dashboard home (stats)
+│   │   │       ├── shop/          # Shop settings & branding
+│   │   │       ├── products/      # CRUD product management
+│   │   │       └── orders/        # Incoming order management
+│   │   ├── (admin)/
+│   │   │   └── admin/             # Platform admin panel (future)
+│   │   └── api/
+│   │       ├── auth/[...all]/route.ts    # BetterAuth catch-all
+│   │       └── webhooks/chargily/route.ts # Payment webhook
+│   ├── components/
+│   │   ├── ui/                    # Shadcn UI primitives
+│   │   ├── layout/                # Navbar, Footer, Sidebar
+│   │   ├── product/               # ProductCard, ProductGrid, ImageGallery
+│   │   ├── shop/                  # ShopHeader, ShopBanner
+│   │   └── forms/                 # ProductForm, ShopForm, ReviewForm
+│   ├── lib/
+│   │   ├── auth.ts                # BetterAuth server config
+│   │   ├── auth-client.ts         # BetterAuth client hooks
+│   │   ├── prisma.ts              # Prisma singleton
+│   │   ├── storage.ts             # Generic StorageService wrapper
+│   │   ├── chargily.ts            # Chargily SDK / helpers
+│   │   └── utils.ts               # Shared helpers (formatCurrency, slugify, etc.)
+│   ├── actions/                   # Server Actions grouped by domain
+│   │   ├── product.actions.ts
+│   │   ├── shop.actions.ts
+│   │   ├── cart.actions.ts
+│   │   ├── order.actions.ts
+│   │   └── review.actions.ts
+│   └── types/                     # Shared TypeScript types & Zod schemas
+│       └── index.ts
+├── .env.local                     # Environment variables (never committed)
+├── tailwind.config.ts
+├── next.config.ts
+├── package.json
+└── tsconfig.json
+```
+
+---
+
+## 5. Database Schema (Prisma)
+
+### 5.1 Auth Tables (auto-generated by BetterAuth CLI)
+BetterAuth manages: `User`, `Session`, `Account`, `Verification`.
+
+### 5.2 Marketplace Tables
+
+```prisma
+// ─── Shop ───
+model Shop {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  bannerUrl   String?
+  logoUrl     String?
+  userId      String   @unique          // One shop per seller
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products    Product[]
+  orders      Order[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Category ───
+model Category {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  slug      String     @unique
+  imageUrl  String?
+  products  Product[]
+}
+
+// ─── Product ───
+model Product {
+  id          String        @id @default(cuid())
+  title       String
+  description String
+  price       Decimal       @db.Decimal(10,2)
+  stock       Int           @default(0)
+  images      ProductImage[]
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id])
+  shopId      String
+  shop        Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  reviews     Review[]
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  isPublished Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  url       String
+  altText   String?
+  position  Int     @default(0)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+// ─── Cart ───
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  quantity  Int     @default(1)
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  @@unique([cartId, productId])
+}
+
+// ─── Order ───
+model Order {
+  id              String      @id @default(cuid())
+  status          OrderStatus @default(PENDING)
+  totalAmount     Decimal     @db.Decimal(10,2)
+  shippingAddress String
+  buyerId         String
+  buyer           User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  shopId          String
+  shop            Shop        @relation(fields: [shopId], references: [id])
+  items           OrderItem[]
+  chargilyCheckoutId String?  @unique
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  quantity  Int
+  price     Decimal @db.Decimal(10,2)  // Snapshot at time of purchase
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+// ─── Review ───
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int                           // 1–5
+  comment   String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([userId, productId])           // One review per user per product
+}
+```
+
+### 5.3 User Extension (added to BetterAuth's User model)
+```prisma
+// Fields added to the existing User model generated by BetterAuth:
+  role    UserRole @default(BUYER)
+  shop    Shop?
+  cart    Cart?
+  reviews Review[]
+  buyerOrders Order[] @relation("BuyerOrders")
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+}
+```
+
+---
+
+## 6. Environment Variables
+
+```env
+# Database (from Supabase > Settings > Database > Connection String)
+DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres?pgbouncer=true"
+DIRECT_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres"
+
+# BetterAuth
+BETTER_AUTH_SECRET="<openssl rand -base64 32>"
+BETTER_AUTH_URL="http://localhost:3000"
+
+# Supabase Storage
+NEXT_PUBLIC_SUPABASE_URL="https://[ref].supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="<service_role_key>"
+
+# Chargily
+CHARGILY_SECRET_KEY="<test_or_live_secret>"
+CHARGILY_WEBHOOK_SECRET="<webhook_secret>"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+```
+
+---
+
+## 7. Phased Implementation Plan
+
+### Phase 1 — Foundation & Setup
+1. Initialize Next.js project with TypeScript and Tailwind CSS v3.
+2. Install and configure Shadcn UI (Button, Card, Input, Dialog, Sheet, etc.).
+3. Set up design system: color palette, typography (Inter/Outfit from Google Fonts), spacing tokens.
+4. Initialize Prisma ORM, connect to Supabase PostgreSQL, configure `prisma.ts` singleton.
+5. Create the full `schema.prisma` (auth + marketplace tables from Section 5).
+6. Run `npx prisma migrate dev` to apply the initial migration.
+
+### Phase 2 — Authentication
+1. Install `better-auth` and `@better-auth/prisma-adapter`.
+2. Configure `lib/auth.ts` with Prisma adapter, email/password provider, and `UserRole` field.
+3. Create `app/api/auth/[...all]/route.ts` catch-all handler.
+4. Configure `lib/auth-client.ts` for client-side hooks (`useSession`, `signIn`, `signUp`, `signOut`).
+5. Build sign-in and sign-up pages with polished UI (Shadcn forms + custom styling).
+6. Add auth middleware to protect `/dashboard/*` and `/checkout/*` routes.
+7. Create an `AuthProvider` context wrapper in the root layout.
+8. Add role selection during sign-up (Buyer vs Seller) or a "Become a Seller" upgrade flow.
+
+### Phase 3 — Layout & Navigation Shell
+1. Build the global **Navbar**: logo, search bar, category dropdown, cart icon (with badge), user menu.
+2. Build the global **Footer**: links, social icons, copyright.
+3. Build the **Seller Dashboard Sidebar**: navigation for Shop, Products, Orders, Settings.
+4. Implement responsive behavior (mobile hamburger menu, collapsible sidebar).
+
+### Phase 4 — Seller Experience
+1. **Shop Setup**: Form to create/edit shop (name, slug, description, logo, banner image upload).
+2. **Storage wrapper** (`lib/storage.ts`): generic `uploadFile` / `deleteFile` / `getPublicUrl` functions backed by Supabase Storage.
+3. **Product CRUD**:
+   - Product creation form: title, description, price, stock, category select, multi-image upload, publish toggle.
+   - Product listing table in dashboard with edit/delete actions.
+   - Server Actions in `actions/product.actions.ts` with Zod validation.
+4. **Order Management**: Table of incoming orders with status badges; action to update status (Processing → Shipped → Delivered).
+5. **Seller Dashboard Home**: Stats cards (total revenue, total orders, total products, average rating).
+
+### Phase 5 — Buyer Experience
+1. **Home Page**:
+   - Hero section with dynamic headline, CTA, and background imagery.
+   - Featured categories carousel/grid.
+   - Trending products section.
+   - How-it-works section.
+   - Micro-animations (fade-in on scroll, hover scales on cards).
+2. **Product Discovery**:
+   - `/products` page with server-side search + filtering (category, price range, sort by).
+   - Responsive product grid using `ProductCard` component.
+   - Pagination or infinite scroll.
+3. **Product Detail** (`/product/[id]`):
+   - Image gallery with thumbnail navigation.
+   - Product info (title, price, description, stock indicator).
+   - "Add to Cart" button with quantity selector.
+   - Shop info card (link to seller's storefront).
+   - Reviews section with average rating display and review list.
+   - Review submission form (authenticated buyers only, post-purchase).
+4. **Seller Storefront** (`/shop/[slug]`):
+   - Shop banner, logo, description.
+   - Grid of the seller's products.
+5. **Shopping Cart** (`/cart`):
+   - Cart items list with quantity adjustment and remove button.
+   - Order summary sidebar (subtotal, estimated total).
+   - "Proceed to Checkout" CTA.
+6. **Checkout** (`/checkout`):
+   - Shipping address form.
+   - Order review.
+   - "Pay with Chargily" button → calls Server Action → redirects to Chargily checkout URL.
+7. **Buyer Order History** (`/orders`):
+   - List of past orders with status, date, and total.
+   - Order detail view with item breakdown.
+
+### Phase 6 — Payments (Chargily Integration)
+1. Install `@chargily/chargily-pay` SDK.
+2. Create `lib/chargily.ts` helper for initializing checkouts.
+3. Create `/api/webhooks/chargily/route.ts`:
+   - Verify webhook signature.
+   - On `checkout.paid`: update Order status to `PAID`, decrement product stock.
+   - On `checkout.failed`: update Order status to `CANCELLED`.
+4. Configure success/failure redirect URLs.
+5. Test full payment cycle in Chargily test mode.
+
+### Phase 7 — Messaging System (MVP)
+1. Create `Message` and `Conversation` models in Prisma.
+2. Inbox UI for buyers and sellers.
+3. Conversation thread view.
+4. Server Actions for sending/receiving messages.
+
+### Phase 8 — Admin Panel (Post-MVP)
+1. Admin dashboard with platform-wide stats.
+2. User management (view, suspend, delete).
+3. Product moderation (flag, review, remove).
+4. Commission tracking and reporting.
+
+### Phase 9 — Polish, SEO & Performance
+1. Add `<title>`, `<meta description>`, Open Graph tags to every page using Next.js `metadata` API.
+2. Use semantic HTML (`<main>`, `<article>`, `<section>`, `<nav>`, `<footer>`).
+3. Optimize images with `next/image` and proper `alt` text.
+4. Implement loading skeletons and `Suspense` boundaries.
+5. Lighthouse audit targeting 90+ on Performance, Accessibility, SEO, Best Practices.
+6. Full responsive QA on mobile, tablet, and desktop viewports.
+
+### Phase 10 — Migration Strategy (Scaling)
+1. **Database**: Change `DATABASE_URL` to new PostgreSQL host (Neon, AWS RDS, etc.). Run `prisma migrate deploy`. Use `pg_dump`/`pg_restore` for data.
+2. **Storage**: Bulk-transfer Supabase bucket → S3/R2/Spaces. Update `lib/storage.ts` to use new provider. Update stored URLs in DB via migration script.
+3. **No auth changes needed** — BetterAuth is DB-agnostic via Prisma adapter.
+
+---
+
+## 8. Verification Plan
+
+### Automated
+- `tsc --noEmit` — Type checking.
+- `next lint` — Linting.
+- `npx prisma validate` — Schema validation.
+- `npx prisma migrate diff` — Migration drift detection.
+
+### Manual QA Checklist
+- [ ] Register a new buyer account; verify session persists across refresh.
+- [ ] Upgrade to seller; create a shop with logo and banner.
+- [ ] Create a product with multiple images; verify it appears on the storefront.
+- [ ] As a buyer: search for the product, view details, add to cart.
+- [ ] Complete checkout via Chargily test mode; verify webhook updates order to PAID.
+- [ ] Submit a review as the buyer; verify it appears on the product page.
+- [ ] As the seller: view the order in dashboard; update status to Shipped.
+- [ ] Test responsive design on mobile (375px), tablet (768px), desktop (1440px).
+- [ ] Verify all pages have correct meta tags (inspect via View Source).
+
+---
+
+## 9. Task Tracker
+
+Legend: `[x]` Done · `[/]` In Progress · `[ ]` To Do
+
+### Phase 1: Foundation & Setup
+- [x] 1.1 Initialize Next.js project (TypeScript, Tailwind CSS, ESLint, App Router, src dir)
+- [ ] 1.2 Install & configure Shadcn UI (`npx -y shadcn-ui@latest init`)
+- [ ] 1.3 Set up design system (color palette, typography, global CSS tokens)
+- [x] 1.4 Install Prisma (`npm i prisma @prisma/client`) and init (`npx prisma init`)
+- [x] 1.5 Create `lib/prisma.ts` singleton
+- [x] 1.6 Write full `schema.prisma` (auth tables + marketplace models)
+- [/] 1.7 Configure Supabase DB connection strings in `.env` (template created, needs real credentials)
+- [ ] 1.8 Run initial migration (`npx prisma migrate dev --name init`)
+
+### Phase 2: Authentication
+- [x] 2.1 Install BetterAuth (`npm i better-auth @better-auth/prisma-adapter`)
+- [x] 2.2 BetterAuth schema written manually in schema.prisma (User, Session, Account, Verification)
+- [x] 2.3 Configure `lib/auth.ts` (Prisma adapter, email/password, UserRole)
+- [x] 2.4 Create `app/api/auth/[...all]/route.ts`
+- [x] 2.5 Configure `lib/auth-client.ts`
+- [ ] 2.6 Build Sign-In page (`/sign-in`)
+- [ ] 2.7 Build Sign-Up page (`/sign-up`) with role selection
+- [ ] 2.8 Add auth middleware for protected routes
+- [ ] 2.9 Create `AuthProvider` wrapper in root layout
+- [ ] 2.10 Test: register, login, logout, session persistence
+
+### Phase 3: Layout & Navigation
+- [ ] 3.1 Build Navbar (logo, search, categories, cart icon, user menu)
+- [ ] 3.2 Build Footer (links, socials, copyright)
+- [ ] 3.3 Build Seller Dashboard layout with sidebar navigation
+- [ ] 3.4 Implement mobile responsive menu (hamburger + sheet)
+- [ ] 3.5 Add active link highlighting and route transitions
+
+### Phase 4: Seller Experience
+- [x] 4.1 Create `lib/storage.ts` (generic upload/delete/getUrl wrapper)
+- [ ] 4.2 Configure Supabase Storage bucket (`product-images`, `shop-assets`)
+- [ ] 4.3 Build Shop creation/edit form with image uploads
+- [x] 4.4 Write `actions/shop.actions.ts` (createShop, updateShop)
+- [ ] 4.5 Build Product creation form (multi-image, category select, price, stock)
+- [ ] 4.6 Build Product listing table in dashboard (with edit/delete)
+- [x] 4.7 Write `actions/product.actions.ts` (CRUD + Zod validation)
+- [ ] 4.8 Build Order management table (status updates)
+- [x] 4.9 Write `actions/order.actions.ts` (updateOrderStatus)
+- [ ] 4.10 Build Seller Dashboard home with stats cards
+- [ ] 4.11 Test: full seller flow end-to-end
+
+### Phase 5: Buyer Experience
+- [ ] 5.1 Build Home Page hero section (dynamic, animated)
+- [ ] 5.2 Build featured categories grid
+- [ ] 5.3 Build trending products section
+- [ ] 5.4 Build how-it-works section
+- [ ] 5.5 Add scroll animations and micro-interactions
+- [ ] 5.6 Build `/products` page (search, filter by category/price, sort, pagination)
+- [ ] 5.7 Build `ProductCard` component
+- [ ] 5.8 Build `/product/[id]` page (image gallery, info, add-to-cart)
+- [ ] 5.9 Build Reviews section (display + submission form)
+- [x] 5.10 Write `actions/review.actions.ts`
+- [ ] 5.11 Build `/shop/[slug]` seller storefront page
+- [ ] 5.12 Build `/cart` page (items, quantity, remove, summary)
+- [x] 5.13 Write `actions/cart.actions.ts` (add, update, remove, clear)
+- [ ] 5.14 Build `/checkout` page (address form, order review, pay button)
+- [ ] 5.15 Build `/orders` buyer order history page
+- [ ] 5.16 Test: full buyer flow end-to-end
+
+### Phase 6: Payments
+- [ ] 6.1 Install Chargily SDK (`npm i @chargily/chargily-pay`)
+- [ ] 6.2 Create `lib/chargily.ts` helper
+- [ ] 6.3 Create checkout Server Action (init payment, redirect)
+- [ ] 6.4 Create `/api/webhooks/chargily/route.ts` (verify signature, update order)
+- [ ] 6.5 Build success and failure redirect pages
+- [ ] 6.6 Test full payment cycle in Chargily test mode
+
+### Phase 7: Messaging (Post-MVP)
+- [ ] 7.1 Add `Conversation` and `Message` models to schema
+- [ ] 7.2 Build inbox UI
+- [ ] 7.3 Build conversation thread view
+- [ ] 7.4 Write messaging Server Actions
+
+### Phase 8: Admin Panel (Post-MVP)
+- [ ] 8.1 Build admin dashboard (platform stats)
+- [ ] 8.2 Build user management page
+- [ ] 8.3 Build product moderation page
+- [ ] 8.4 Implement commission tracking
+
+### Phase 9: Polish & SEO
+- [ ] 9.1 Add metadata (title, description, OG tags) to all pages
+- [ ] 9.2 Ensure semantic HTML throughout
+- [ ] 9.3 Optimize images with `next/image`
+- [ ] 9.4 Add loading skeletons and Suspense boundaries
+- [ ] 9.5 Lighthouse audit (target 90+ all categories)
+- [ ] 9.6 Full responsive QA (mobile, tablet, desktop)
+
+### Phase 10: Migration Prep (Future)
+- [ ] 10.1 Document migration runbook
+- [ ] 10.2 Test DB migration with `pg_dump` / `pg_restore`
+- [ ] 10.3 Test storage migration script (Supabase → S3/R2)
+- [ ] 10.4 Update storage wrapper and environment variables
