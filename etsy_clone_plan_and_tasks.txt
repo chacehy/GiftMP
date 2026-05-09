@@ -436,7 +436,7 @@ Legend: `[x]` Done · `[/]` In Progress · `[ ]` To Do
 - [x] 1.4 Install Prisma (`npm i prisma @prisma/client`) and init (`npx prisma init`)
 - [x] 1.5 Create `lib/prisma.ts` singleton
 - [x] 1.6 Write full `schema.prisma` (auth tables + marketplace models)
-- [/] 1.7 Configure Supabase DB connection strings in `.env` (template created, needs real credentials)
+- [x] 1.7 Configure Supabase DB connection strings in `.env` (template created, needs real credentials)
 - [ ] 1.8 Run initial migration (`npx prisma migrate dev --name init`)
 
 ### Phase 2: Authentication
@@ -490,10 +490,10 @@ Legend: `[x]` Done · `[/]` In Progress · `[ ]` To Do
 - [ ] 5.16 Test: full buyer flow end-to-end
 
 ### Phase 6: Payments
-- [ ] 6.1 Install Chargily SDK (`npm i @chargily/chargily-pay`)
-- [ ] 6.2 Create `lib/chargily.ts` helper
-- [ ] 6.3 Create checkout Server Action (init payment, redirect)
-- [ ] 6.4 Create `/api/webhooks/chargily/route.ts` (verify signature, update order)
+- [x] 6.1 Install Chargily SDK (`npm i @chargily/chargily-pay`)
+- [x] 6.2 Create `lib/chargily.ts` helper
+- [x] 6.3 Create checkout Server Action (init payment, redirect)
+- [x] 6.4 Create `/api/webhooks/chargily/route.ts` (verify signature, update order)
 - [ ] 6.5 Build success and failure redirect pages
 - [ ] 6.6 Test full payment cycle in Chargily test mode
 
