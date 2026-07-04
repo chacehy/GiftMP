@@ -30,7 +30,14 @@ This plan locks down access control first (the core requirement), then builds th
 
 ---
 
-## Phase 1 — Admin dashboard + RBAC lockdown  *(core requirement)*
+## Phase 1 — Admin dashboard + RBAC lockdown  *(core requirement)* — ✅ DONE
+
+Implemented: `src/lib/auth-guard.ts` (`requireRole`/`assertRole`), `src/actions/admin.actions.ts` (`createSellerWithShop` with email-invite password reset, `promoteBuyerToSeller`, `listSellers`, `getAdminStats`), admin UI under `src/app/(main)/admin/*`, `scripts/create-admin.ts` bootstrap (`npm run seed:admin`), role gating in `src/proxy.ts` (renamed from `middleware.ts` — Next.js 16 deprecated the `middleware` file convention) and `dashboard/layout.tsx`, and removal of self-serve shop creation (`createShop` self-promotion, `/dashboard/shop/create` page, navbar/footer/home CTAs).
+
+Also fixed along the way: a missing `/reset-password` page (the invite-email link had nowhere to land) and a pre-existing production-build bug where `sign-in`/`reset-password` used `useSearchParams()` without a Suspense boundary (`next build` was failing before this work started).
+
+Verified end-to-end against a real local Postgres + a real dev server: buyer signup → blocked from `/dashboard` and `/admin`; admin → reaches both; admin creates a seller → seller receives a working invite link → sets password → signs in → reaches `/dashboard` → blocked from `/admin`. `tsc --noEmit`, `prisma validate`, and `next build` all pass clean.
+
 
 **Goal:** buyers self-register (BUYER); only ADMINs mint sellers/shops; real role gates everywhere.
 

@@ -2,8 +2,8 @@
 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
+import { assertRole } from "@/lib/auth-guard";
+import { UserRole } from "@/generated/prisma/enums";
 
 const shopSchema = z.object({
   name: z.string().min(3, "Shop name must be at least 3 characters").max(50),
@@ -16,83 +16,12 @@ const shopSchema = z.object({
 export type ShopInput = z.infer<typeof shopSchema>;
 
 /**
- * Creates a new shop for the authenticated user and upgrades their role to SELLER
- */
-export async function createShop(data: ShopInput) {
-  try {
-    // 1. Verify Authentication
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session || !session.user) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    // 2. Validate input
-    const parsedData = shopSchema.safeParse(data);
-    if (!parsedData.success) {
-      return { 
-        success: false, 
-        error: "Invalid input", 
-        validationErrors: parsedData.error.flatten().fieldErrors 
-      };
-    }
-
-    const { name, slug, description, bannerUrl, logoUrl } = parsedData.data;
-
-    // 3. Check if slug is taken
-    const existingShop = await prisma.shop.findUnique({
-      where: { slug },
-    });
-
-    if (existingShop) {
-      return { success: false, error: "Shop URL slug is already taken." };
-    }
-
-    // 4. Create shop and upgrade user role
-    const shop = await prisma.$transaction(async (tx) => {
-      const newShop = await tx.shop.create({
-        data: {
-          name,
-          slug,
-          description,
-          bannerUrl: bannerUrl || null,
-          logoUrl: logoUrl || null,
-          userId: session.user.id,
-        },
-      });
-
-      // Upgrade user role to SELLER if they are currently a BUYER
-      if ((session.user as any).role === "BUYER" || !(session.user as any).role) {
-        await tx.user.update({
-          where: { id: session.user.id },
-          data: { role: "SELLER" },
-        });
-      }
-
-      return newShop;
-    });
-
-    return { success: true, shop };
-  } catch (error: any) {
-    console.error("Create shop error:", error);
-    return { success: false, error: error.message || "Failed to create shop." };
-  }
-}
-
-/**
- * Updates an existing shop
+ * Updates an existing shop. Shops themselves are created only by admins
+ * (see src/actions/admin.actions.ts); sellers may only edit their own.
  */
 export async function updateShop(data: ShopInput) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session || !session.user) {
-      return { success: false, error: "Unauthorized" };
-    }
+    const { session } = await assertRole([UserRole.SELLER, UserRole.ADMIN]);
 
     const parsedData = shopSchema.safeParse(data);
     if (!parsedData.success) {

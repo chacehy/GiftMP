@@ -15,6 +15,7 @@ import {
   Heart,
   ChevronDown,
   Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 
 const categories = [
@@ -159,14 +160,14 @@ export function Navbar() {
                             Seller Dashboard
                           </Link>
                         )}
-                        {userRole === "BUYER" && (
+                        {userRole === "ADMIN" && (
                           <Link
-                            href="/dashboard/shop/create"
+                            href="/admin"
                             onClick={() => setUserMenuOpen(false)}
-                            className="flex items-center gap-2.5 px-3 py-2 text-sm text-brand rounded-lg hover:bg-brand-cream transition-colors font-medium"
+                            className="flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                           >
-                            <Store className="w-4 h-4" />
-                            Open a Shop
+                            <ShieldCheck className="w-4 h-4 text-gray-400" />
+                            Admin Panel
                           </Link>
                         )}
                       </div>
