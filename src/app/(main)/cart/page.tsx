@@ -25,8 +25,10 @@ export default async function CartPage() {
               include: {
                 images: { orderBy: { position: "asc" }, take: 1 },
                 shop: { select: { name: true } },
+                variant: true,
               },
             },
+            variantOption: true,
           },
         },
       },
@@ -34,10 +36,8 @@ export default async function CartPage() {
   } catch {}
 
   const items = cart?.items || [];
-  const subtotal = items.reduce(
-    (sum: number, item: any) => sum + Number(item.product.price) * item.quantity,
-    0
-  );
+  const unitPrice = (item: any) => Number(item.product.price) + Number(item.variantOption?.priceDelta ?? 0);
+  const subtotal = items.reduce((sum: number, item: any) => sum + unitPrice(item) * item.quantity, 0);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -92,13 +92,25 @@ export default async function CartPage() {
                   >
                     {item.product.title}
                   </Link>
-                  <p className="text-sm font-bold text-gray-900 mt-1">
-                    {formatCurrency(Number(item.product.price))}
-                  </p>
+                  {item.variantOption && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {item.product.variant?.name}: {item.variantOption.label}
+                    </p>
+                  )}
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <p className="text-sm font-bold text-gray-900">
+                      {formatCurrency(unitPrice(item))}
+                    </p>
+                    {item.quantity > 1 && (
+                      <p className="text-xs text-gray-400">
+                        {formatCurrency(unitPrice(item) * item.quantity)} total
+                      </p>
+                    )}
+                  </div>
                   <CartActions
                     cartItemId={item.id}
                     quantity={item.quantity}
-                    stock={item.product.stock}
+                    stock={item.variantOption ? item.variantOption.stock : item.product.stock}
                   />
                 </div>
               </div>

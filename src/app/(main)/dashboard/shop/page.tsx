@@ -1,20 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { updateShop } from "@/actions/shop.actions";
+import { ImageUploader } from "@/components/forms/image-uploader";
 import { Save, ExternalLink, Check } from "lucide-react";
 import Link from "next/link";
 
 export default function ShopSettingsPage() {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
-  const [shop, setShop] = useState<any>(null);
+  const [shop, setShop] = useState<{ slug: string } | null>(null);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [bannerUrl, setBannerUrl] = useState("");
 
   useEffect(() => {
     fetch("/api/my-shop")
@@ -25,6 +26,8 @@ export default function ShopSettingsPage() {
           setName(data.name || "");
           setSlug(data.slug || "");
           setDescription(data.description || "");
+          setLogoUrl(data.logoUrl || "");
+          setBannerUrl(data.bannerUrl || "");
         }
       })
       .catch(() => {});
@@ -36,7 +39,7 @@ export default function ShopSettingsPage() {
     setSuccess(false);
     setLoading(true);
 
-    const result = await updateShop({ name, slug, description });
+    const result = await updateShop({ name, slug, description, logoUrl, bannerUrl });
     if (result.success) {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -62,7 +65,32 @@ export default function ShopSettingsPage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-6 sm:p-8">
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid sm:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Logo</label>
+              <div className="max-w-[140px]">
+                <ImageUploader
+                  bucket="shop-assets"
+                  value={logoUrl ? [logoUrl] : []}
+                  onChange={(urls) => setLogoUrl(urls[urls.length - 1] ?? "")}
+                  maxFiles={1}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Banner</label>
+              <div className="max-w-xs">
+                <ImageUploader
+                  bucket="shop-assets"
+                  value={bannerUrl ? [bannerUrl] : []}
+                  onChange={(urls) => setBannerUrl(urls[urls.length - 1] ?? "")}
+                  maxFiles={1}
+                />
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Shop Name</label>
             <input

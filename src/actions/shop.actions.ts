@@ -3,14 +3,15 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { assertRole } from "@/lib/auth-guard";
+import { imageUrlSchema } from "@/lib/schemas";
 import { UserRole } from "@/generated/prisma/enums";
 
 const shopSchema = z.object({
   name: z.string().min(3, "Shop name must be at least 3 characters").max(50),
   slug: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/, "Slug must contain only lowercase letters, numbers, and hyphens"),
   description: z.string().max(500).optional(),
-  bannerUrl: z.string().url().optional().or(z.literal("")),
-  logoUrl: z.string().url().optional().or(z.literal("")),
+  bannerUrl: imageUrlSchema.optional().or(z.literal("")),
+  logoUrl: imageUrlSchema.optional().or(z.literal("")),
 });
 
 export type ShopInput = z.infer<typeof shopSchema>;

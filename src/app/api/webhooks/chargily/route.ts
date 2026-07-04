@@ -3,7 +3,7 @@ import { verifySignature } from '@chargily/chargily-pay';
 import { prisma } from '@/lib/prisma';
 
 /**
- * Chargily Pay V2 Webhook Handler for Etsy Clone
+ * Chargily Pay V2 Webhook Handler
  */
 export async function POST(req: Request) {
     try {
@@ -58,21 +58,22 @@ export async function POST(req: Request) {
                     where: {
                         orderId: { in: ids },
                     },
-                    include: {
-                        product: true,
-                    },
                 });
 
-                // Decrement stock for each product
+                // Decrement stock for each item — the specific variant option
+                // if one was selected, otherwise the product itself.
                 for (const item of orderItems) {
-                    await tx.product.update({
-                        where: { id: item.productId },
-                        data: {
-                            stock: {
-                                decrement: item.quantity,
-                            },
-                        },
-                    });
+                    if (item.variantOptionId) {
+                        await tx.productVariantOption.update({
+                            where: { id: item.variantOptionId },
+                            data: { stock: { decrement: item.quantity } },
+                        });
+                    } else {
+                        await tx.product.update({
+                            where: { id: item.productId },
+                            data: { stock: { decrement: item.quantity } },
+                        });
+                    }
                 }
 
                 // Clear the user's cart

@@ -97,7 +97,8 @@ export async function createOrder(shippingAddress: string) {
       include: {
         items: {
           include: {
-            product: true,
+            product: { include: { variant: true } },
+            variantOption: true,
           },
         },
       },
@@ -129,7 +130,9 @@ export async function createOrder(shippingAddress: string) {
 
     for (const shopId of shopIds) {
       const shopItems = itemsByShop[shopId];
-      const shopTotal = shopItems.reduce((sum, item) => sum + (Number(item.product.price) * item.quantity), 0);
+      const unitPrice = (item: (typeof shopItems)[number]) =>
+        Number(item.product.price) + Number(item.variantOption?.priceDelta ?? 0);
+      const shopTotal = shopItems.reduce((sum, item) => sum + unitPrice(item) * item.quantity, 0);
       totalAmount += shopTotal;
 
       // Create order record
@@ -141,10 +144,14 @@ export async function createOrder(shippingAddress: string) {
           shopId,
           status: "PENDING",
           items: {
-            create: shopItems.map(item => ({
+            create: shopItems.map((item) => ({
               productId: item.productId,
               quantity: item.quantity,
-              price: item.product.price,
+              price: unitPrice(item),
+              variantOptionId: item.variantOptionId,
+              variantLabel: item.variantOption
+                ? `${item.product.variant?.name}: ${item.variantOption.label}`
+                : null,
             })),
           },
         },

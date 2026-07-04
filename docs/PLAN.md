@@ -74,7 +74,15 @@ The plugin assumes a 2-tier user/admin world with lowercase role values that cla
 
 ---
 
-## Phase 2 — Product depth (listings that feel like Etsy)
+## Phase 2 — Product depth (listings that feel like Etsy) — ✅ DONE
+
+Implemented exactly as scoped: schema additions (`ProductType` enum, `tags`/`materials`/`processingTime`/`personalization` on `Product`, `ProductVariant`/`ProductVariantOption`, `Category` parent/child self-relation + seeded tree via `npm run seed:categories`, `Review.images`/`sellerResponse`); a real image-upload pipeline (`src/app/api/uploads/route.ts` + `src/components/forms/image-uploader.tsx`) wired into product create/edit and shop settings; a shared `ProductForm` used by both `/dashboard/products/new` and the previously-missing `/dashboard/products/[id]/edit` page; an interactive client-side gallery, variant selector (gates add-to-cart, live price update), tags/materials/processing-time/personalization display, and a "More from this shop" section on the product page; upgraded reviews with photo uploads, a rating histogram, an (accurate, since submission is already purchase-gated) verified-purchase badge, and one-time seller responses.
+
+`src/lib/storage.ts` now falls back to writing under `public/uploads/` when Supabase credentials aren't configured, so uploads work with zero external setup in dev — real Supabase Storage is used automatically once real credentials are present.
+
+Bugs found and fixed via end-to-end testing rather than just type-checking: `z.string().url()` in the product/shop/review schemas rejected the local-storage fallback's relative URLs (fixed with a shared `imageUrlSchema` in `src/lib/schemas.ts` that accepts both absolute URLs and site-relative paths); stock/price for variant products now derives from the variant options (cart, order snapshot, and the Chargily webhook's stock decrement all route through the selected `ProductVariantOption` when present, falling back to the plain `Product.stock`/`price` otherwise).
+
+Verified against a real local Postgres + running dev server: admin creates a seller → seller builds a full listing (2 photos, a Size variant with a price delta, tags, materials, processing time, personalization) → product page renders the gallery/variant selector and price updates live → buyer adds the variant to cart (correct label + delta-adjusted price) → checkout creates a real order at the correct total → (payment gateway simulated PAID, since Chargily credentials are intentionally out of scope) → buyer leaves a photo review → seller responds → seller uploads a shop logo (local storage) → seller edits the listing. All 19 functional checks passed; `tsc --noEmit`, `prisma validate`, and `next build` are clean.
 
 **Schema additions** (`prisma/schema.prisma`, one migration):
 - `Product`: add `tags String[]`, `materials String[]`, `type ProductType` (`PHYSICAL`/`DIGITAL` or `HANDMADE`/`VINTAGE`/`SUPPLY`), `processingTime String?`, `personalization String?` (buyer note prompt), `isActive`/`quantity` already covered by `stock`.
