@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 const addToCartSchema = z.object({
   productId: z.string().cuid(),
   quantity: z.coerce.number().int().positive().default(1),
+  variantOptionId: z.string().cuid().optional(),
 });
 
 export type AddToCartInput = z.infer<typeof addToCartSchema>;
@@ -59,39 +60,53 @@ export async function addToCart(data: AddToCartInput) {
       };
     }
 
-    const { productId, quantity } = parsedData.data;
+    const { productId, quantity, variantOptionId } = parsedData.data;
 
     // Check if product exists and has stock
     const product = await prisma.product.findUnique({
       where: { id: productId },
+      include: { variant: { include: { options: true } } },
     });
 
     if (!product || !product.isPublished) {
       return { success: false, error: "Product not found or unavailable." };
     }
 
-    if (product.stock < quantity) {
-      return { success: false, error: `Only ${product.stock} items available in stock.` };
+    const hasVariant = Boolean(product.variant && product.variant.options.length > 0);
+    if (hasVariant && !variantOptionId) {
+      return { success: false, error: "Please select an option before adding to cart." };
+    }
+    if (!hasVariant && variantOptionId) {
+      return { success: false, error: "This product does not have variant options." };
+    }
+
+    let stock = product.stock;
+    if (variantOptionId) {
+      const option = product.variant?.options.find((o) => o.id === variantOptionId);
+      if (!option) {
+        return { success: false, error: "That option is no longer available." };
+      }
+      stock = option.stock;
+    }
+
+    if (stock < quantity) {
+      return { success: false, error: `Only ${stock} items available in stock.` };
     }
 
     const cart = await getOrCreateCart(session.user.id);
 
-    // Check if item already exists in cart
-    const existingItem = await prisma.cartItem.findUnique({
-      where: {
-        cartId_productId: {
-          cartId: cart.id,
-          productId,
-        },
-      },
+    // Check if this exact product + variant combination is already in the cart.
+    // (No DB-level unique constraint here — see the CartItem schema comment.)
+    const existingItem = await prisma.cartItem.findFirst({
+      where: { cartId: cart.id, productId, variantOptionId: variantOptionId ?? null },
     });
 
     if (existingItem) {
       // Update quantity
       const newQuantity = existingItem.quantity + quantity;
-      
-      if (newQuantity > product.stock) {
-        return { success: false, error: `Cannot add more than available stock (${product.stock}).` };
+
+      if (newQuantity > stock) {
+        return { success: false, error: `Cannot add more than available stock (${stock}).` };
       }
 
       await prisma.cartItem.update({
@@ -105,12 +120,13 @@ export async function addToCart(data: AddToCartInput) {
           cartId: cart.id,
           productId,
           quantity,
+          variantOptionId: variantOptionId ?? null,
         },
       });
     }
 
     revalidatePath("/cart");
-    
+
     return { success: true };
   } catch (error: any) {
     console.error("Add to cart error:", error);
@@ -144,6 +160,7 @@ export async function updateCartItemQuantity(data: UpdateCartItemInput) {
       include: {
         cart: true,
         product: true,
+        variantOption: true,
       },
     });
 
@@ -151,8 +168,9 @@ export async function updateCartItemQuantity(data: UpdateCartItemInput) {
       return { success: false, error: "Item not found or unauthorized." };
     }
 
-    if (quantity > cartItem.product.stock) {
-      return { success: false, error: `Only ${cartItem.product.stock} items available in stock.` };
+    const stock = cartItem.variantOption ? cartItem.variantOption.stock : cartItem.product.stock;
+    if (quantity > stock) {
+      return { success: false, error: `Only ${stock} items available in stock.` };
     }
 
     const updated = await prisma.cartItem.update({
@@ -180,6 +198,10 @@ export async function removeCartItem(cartItemId: string) {
 
     if (!session || !session.user) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    if (!z.string().cuid().safeParse(cartItemId).success) {
+      return { success: false, error: "Invalid item." };
     }
 
     // Verify ownership

@@ -97,12 +97,6 @@ export default async function HomePage() {
                 Shop Now
                 <ArrowRight className="w-4 h-4" />
               </Link>
-              <Link
-                href="/dashboard/shop/create"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-gray-700 font-semibold rounded-full border border-gray-200 hover:border-brand hover:text-brand transition-all hover:shadow-md active:scale-[0.98]"
-              >
-                Start Selling
-              </Link>
             </div>
           </div>
         </div>
@@ -193,29 +187,6 @@ export default async function HomePage() {
               <p className="text-sm text-gray-500 leading-relaxed">{f.desc}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* ─── CTA Banner ─── */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand to-brand-dark p-8 sm:p-12">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/4" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/4" />
-          <div className="relative max-w-lg">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white font-[Outfit]">
-              Turn your craft into a business
-            </h2>
-            <p className="mt-3 text-orange-100 leading-relaxed">
-              Join hundreds of Algerian artisans who are sharing their work with the world. Setting up your shop takes just minutes.
-            </p>
-            <Link
-              href="/dashboard/shop/create"
-              className="inline-flex items-center gap-2 mt-6 px-6 py-3 bg-white text-brand font-semibold rounded-full hover:bg-orange-50 transition-all hover:shadow-lg active:scale-[0.98]"
-            >
-              Open Your Shop — It&apos;s Free
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
         </div>
       </section>
     </>

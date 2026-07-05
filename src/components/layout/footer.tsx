@@ -57,11 +57,6 @@ export function Footer() {
             </h3>
             <ul className="space-y-2.5">
               <li>
-                <Link href="/dashboard/shop/create" className="text-sm hover:text-brand-light transition-colors">
-                  Open a Shop
-                </Link>
-              </li>
-              <li>
                 <Link href="/dashboard" className="text-sm hover:text-brand-light transition-colors">
                   Seller Dashboard
                 </Link>

@@ -1,21 +1,20 @@
 import { requireRole } from "@/lib/auth-guard";
 import { UserRole } from "@/generated/prisma/enums";
 import Link from "next/link";
-import { Store, Package, ShoppingBag, BarChart3, Settings, Menu } from "lucide-react";
+import { ShieldCheck, LayoutDashboard, Store, Users } from "lucide-react";
 
 const sidebarLinks = [
-  { href: "/dashboard", label: "Overview", icon: BarChart3 },
-  { href: "/dashboard/products", label: "Products", icon: Package },
-  { href: "/dashboard/orders", label: "Orders", icon: ShoppingBag },
-  { href: "/dashboard/shop", label: "Shop Settings", icon: Settings },
+  { href: "/admin", label: "Overview", icon: LayoutDashboard },
+  { href: "/admin/sellers", label: "Sellers", icon: Store },
+  { href: "/admin/sellers/new", label: "Add Seller", icon: Users },
 ];
 
-export default async function DashboardLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  await requireRole([UserRole.SELLER, UserRole.ADMIN], "/dashboard");
+  await requireRole([UserRole.ADMIN], "/admin");
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -24,8 +23,8 @@ export default async function DashboardLayout({
         <aside className="hidden lg:block w-56 shrink-0">
           <nav className="sticky top-24 space-y-1">
             <div className="flex items-center gap-2 mb-6">
-              <Store className="w-5 h-5 text-brand" />
-              <span className="font-bold text-gray-900 font-[Outfit]">Dashboard</span>
+              <ShieldCheck className="w-5 h-5 text-brand" />
+              <span className="font-bold text-gray-900 font-[Outfit]">Admin</span>
             </div>
             {sidebarLinks.map((link) => (
               <Link

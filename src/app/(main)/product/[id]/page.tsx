@@ -1,11 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
-import { Star, ShoppingCart, Store, ArrowLeft, Minus, Plus, Package } from "lucide-react";
+import { Star, Store, ArrowLeft, Clock, Sparkles, Tag } from "lucide-react";
 import Link from "next/link";
-import { formatCurrency } from "@/lib/utils";
-import { AddToCartButton } from "@/components/product/add-to-cart-button";
+import { ProductGallery } from "@/components/product/product-gallery";
+import { ProductPurchasePanel } from "@/components/product/product-purchase-panel";
 import { ReviewSection } from "@/components/product/review-section";
+import { ProductCard } from "@/components/product/product-card";
 import type { Metadata } from "next";
+
+const TYPE_LABELS: Record<string, string> = {
+  HANDMADE: "Handmade",
+  VINTAGE: "Vintage",
+  SUPPLY: "Craft Supply",
+};
 
 export async function generateMetadata({
   params,
@@ -41,10 +48,11 @@ export default async function ProductDetailPage({
       where: { id, isPublished: true },
       include: {
         images: { orderBy: { position: "asc" } },
-        shop: { select: { id: true, name: true, slug: true, logoUrl: true } },
+        shop: { select: { id: true, userId: true, name: true, slug: true, logoUrl: true } },
         category: { select: { name: true, slug: true } },
+        variant: { include: { options: { orderBy: { priceDelta: "asc" } } } },
         reviews: {
-          include: { user: { select: { name: true, image: true } } },
+          include: { user: { select: { name: true, image: true } }, images: true },
           orderBy: { createdAt: "desc" },
         },
       },
@@ -59,6 +67,33 @@ export default async function ProductDetailPage({
     product.reviews.length > 0
       ? product.reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / product.reviews.length
       : 0;
+
+  let moreFromShop: any[] = [];
+  try {
+    moreFromShop = await prisma.product.findMany({
+      where: { shopId: product.shop.id, isPublished: true, id: { not: product.id } },
+      include: {
+        images: { orderBy: { position: "asc" }, take: 1 },
+        shop: { select: { name: true, slug: true } },
+        reviews: { select: { rating: true } },
+      },
+      take: 4,
+      orderBy: { createdAt: "desc" },
+    });
+  } catch {}
+
+  const variant = product.variant
+    ? {
+        id: product.variant.id,
+        name: product.variant.name,
+        options: product.variant.options.map((o: any) => ({
+          id: o.id,
+          label: o.label,
+          priceDelta: Number(o.priceDelta),
+          stock: o.stock,
+        })),
+      }
+    : null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -78,31 +113,7 @@ export default async function ProductDetailPage({
 
       <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
         {/* ─── Image Gallery ─── */}
-        <div className="space-y-3">
-          <div className="aspect-square rounded-2xl overflow-hidden bg-gray-100">
-            <img
-              src={product.images[0]?.url || "/placeholder-product.svg"}
-              alt={product.images[0]?.altText || product.title}
-              className="w-full h-full object-cover"
-            />
-          </div>
-          {product.images.length > 1 && (
-            <div className="grid grid-cols-4 gap-3">
-              {product.images.slice(1, 5).map((img: any) => (
-                <div
-                  key={img.id}
-                  className="aspect-square rounded-xl overflow-hidden bg-gray-100 border-2 border-transparent hover:border-brand/50 transition-colors cursor-pointer"
-                >
-                  <img
-                    src={img.url}
-                    alt={img.altText || product.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProductGallery images={product.images} title={product.title} />
 
         {/* ─── Product Info ─── */}
         <div className="animate-fade-in-up">
@@ -111,11 +122,19 @@ export default async function ProductDetailPage({
             href={`/shop/${product.shop.slug}`}
             className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-brand transition-colors mb-3"
           >
-            <div className="w-6 h-6 rounded-full bg-brand-cream flex items-center justify-center text-xs font-semibold text-brand">
-              {product.shop.name.charAt(0)}
-            </div>
+            {product.shop.logoUrl ? (
+              <img src={product.shop.logoUrl} alt={product.shop.name} className="w-6 h-6 rounded-full object-cover" />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-brand-cream flex items-center justify-center text-xs font-semibold text-brand">
+                {product.shop.name.charAt(0)}
+              </div>
+            )}
             {product.shop.name}
           </Link>
+
+          <div className="flex items-center gap-2 mb-3">
+            <span className="badge badge-neutral text-[10px]">{TYPE_LABELS[product.type] || product.type}</span>
+          </div>
 
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 font-[Outfit] leading-tight mb-3">
             {product.title}
@@ -145,28 +164,12 @@ export default async function ProductDetailPage({
             </div>
           )}
 
-          {/* Price */}
-          <div className="mb-6">
-            <span className="text-3xl font-bold text-gray-900">
-              {formatCurrency(Number(product.price))}
-            </span>
-          </div>
-
-          {/* Stock */}
-          <div className="flex items-center gap-2 mb-6">
-            <Package className="w-4 h-4 text-gray-400" />
-            {product.stock > 0 ? (
-              <span className="text-sm">
-                <span className="font-medium text-green-600">In stock</span>
-                <span className="text-gray-400"> — {product.stock} available</span>
-              </span>
-            ) : (
-              <span className="text-sm font-medium text-red-500">Out of stock</span>
-            )}
-          </div>
-
-          {/* Add to Cart */}
-          <AddToCartButton productId={product.id} stock={product.stock} />
+          <ProductPurchasePanel
+            productId={product.id}
+            basePrice={Number(product.price)}
+            stock={product.stock}
+            variant={variant}
+          />
 
           {/* Description */}
           <div className="mt-8 pt-8 border-t border-gray-100">
@@ -176,26 +179,95 @@ export default async function ProductDetailPage({
             </div>
           </div>
 
+          {/* Details: materials, processing time, personalization */}
+          {(product.materials.length > 0 || product.processingTime || product.personalization) && (
+            <div className="mt-6 space-y-3">
+              {product.materials.length > 0 && (
+                <div className="flex items-start gap-2 text-sm">
+                  <Sparkles className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                  <p>
+                    <span className="text-gray-500">Materials: </span>
+                    <span className="text-gray-800">{product.materials.join(", ")}</span>
+                  </p>
+                </div>
+              )}
+              {product.processingTime && (
+                <div className="flex items-start gap-2 text-sm">
+                  <Clock className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                  <p>
+                    <span className="text-gray-500">Processing time: </span>
+                    <span className="text-gray-800">{product.processingTime}</span>
+                  </p>
+                </div>
+              )}
+              {product.personalization && (
+                <div className="p-3 rounded-xl bg-brand-cream/40 border border-brand/10 text-sm text-gray-700">
+                  <span className="font-medium">Personalization: </span>
+                  {product.personalization}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tags */}
+          {product.tags.length > 0 && (
+            <div className="mt-6 flex flex-wrap gap-2">
+              {product.tags.map((tag: string) => (
+                <Link
+                  key={tag}
+                  href={`/products?q=${encodeURIComponent(tag)}`}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 text-xs hover:bg-brand-cream hover:text-brand-dark transition-colors"
+                >
+                  <Tag className="w-3 h-3" />
+                  {tag}
+                </Link>
+              ))}
+            </div>
+          )}
+
           {/* Shop Card */}
           <div className="mt-8 p-4 rounded-2xl bg-gray-50 border border-gray-100">
             <Link href={`/shop/${product.shop.slug}`} className="flex items-center gap-3 group">
-              <div className="w-12 h-12 rounded-xl bg-brand-cream flex items-center justify-center text-lg font-bold text-brand group-hover:bg-brand group-hover:text-white transition-colors">
-                {product.shop.name.charAt(0)}
-              </div>
+              {product.shop.logoUrl ? (
+                <img
+                  src={product.shop.logoUrl}
+                  alt={product.shop.name}
+                  className="w-12 h-12 rounded-xl object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-brand-cream flex items-center justify-center text-lg font-bold text-brand group-hover:bg-brand group-hover:text-white transition-colors">
+                  {product.shop.name.charAt(0)}
+                </div>
+              )}
               <div>
                 <p className="font-semibold text-gray-900 group-hover:text-brand transition-colors">
                   {product.shop.name}
                 </p>
-                <p className="text-xs text-gray-500">Visit shop →</p>
+                <p className="text-xs text-gray-500 flex items-center gap-1">
+                  <Store className="w-3 h-3" /> Visit shop →
+                </p>
               </div>
             </Link>
           </div>
         </div>
       </div>
 
+      {/* ─── More from this shop ─── */}
+      {moreFromShop.length > 0 && (
+        <div className="mt-16">
+          <h2 className="text-xl font-bold text-gray-900 font-[Outfit] mb-5">More from {product.shop.name}</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+            {moreFromShop.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ─── Reviews ─── */}
       <ReviewSection
         productId={product.id}
+        shopOwnerId={product.shop.userId}
         reviews={product.reviews}
         avgRating={avgRating}
       />
